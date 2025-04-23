@@ -18,10 +18,15 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger(__name__)
+# We don't want APscheduler INFO logs
+logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
+logging.getLogger('apscheduler.scheduler').setLevel(logging.WARNING)
+logging.getLogger('apscheduler.jobstores.default').setLevel(logging.WARNING)
+logging.getLogger('apscheduler.triggers.cron').setLevel(logging.WARNING)
+
 
 # Create and non-blocking scheduler
 scheduler = BackgroundScheduler()
-
 # Connect to Docker socket
 docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 
@@ -40,7 +45,8 @@ def is_scheduler_enabled(container):
     """
     Check if the scheduler is enabled for the container.
     Returns: 
-        - False whenever the label is "false" (or anything other than "true"), including if the label is missing.
+        - False whenever the label is "false" (or anything other than "true"), 
+          including if the label is missing.
         - True when label is true.
     """
     labels = container.labels or {}
@@ -76,7 +82,8 @@ def validate_jobs(container, raw_jobs):
     Validate and build final job list:
       - must have both schedule and command
       - schedule must be valid cron expression
-      - returns list of job dicts with id, container_name, container_id, schedule, command
+      - returns list of job dicts with id, container_name, container_id,
+        schedule, command
     """
     jobs = []
     for job_name, props in raw_jobs.items():
@@ -109,9 +116,20 @@ def execute_job(job):
     cid = job['container_id']
     job_id = job['id']
     cont_name = job['container_name']
-    result = docker_client.containers.get(cid).exec_run(cmd, tty=True)
-    output = result.output.decode('utf-8', errors='replace')
-    logger.info(f"Output for {cont_name} ({job_id}):\n{output}")
+    logger.info(f"Runnig job {job_id} in {cont_name}")
+    try:
+        result = docker_client.containers.get(cid).exec_run(cmd, tty=True)
+        output = result.output.decode('utf-8', errors='replace')
+        exit_code = result.exit_code
+        if exit_code != 0:
+            # Log error without traceback
+            logger.error(f"Job {job_id} in {cont_name} ({cid}) exited with code {exit_code}: {output}")
+            return  # Do not raise to avoid traceback logging
+        #logger.info(f"Output for {cont_name} ({job_id}):\n{output}")
+    except Exception as e:
+        # Log the exception without full traceback
+        logger.exception(f"Error running job {job_id} in {cont_name} ({cid}): {e}")
+        return
 
 
 def sync_container(container):
