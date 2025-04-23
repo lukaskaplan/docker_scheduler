@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import docker
 import json
+import signal # for signal handlers SIGINT and SIGTERM
+import sys # for sys.exit(0)
 import threading # for scheduler and watcher threads
 import time # for endles while loop with time.sleep(1)
 from datetime import datetime
@@ -14,6 +16,16 @@ scheduler = BackgroundScheduler()
 
 # Connect to Docker socket
 docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
+
+# Graceful shutdown handler
+def handle_exit(signum, frame):
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Received signal {signum}, shutting down...")
+    scheduler.shutdown(wait=False)
+    sys.exit(0)
+
+# Register signal handlers for SIGINT and SIGTERM
+signal.signal(signal.SIGINT, handle_exit)
+signal.signal(signal.SIGTERM, handle_exit)
 
 
 def is_scheduler_enabled(container):
@@ -168,6 +180,9 @@ if __name__ == '__main__':
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Event watcher thread started")
 
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Scheduler service is running...")
-    while True:
-        time.sleep(1)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        handle_exit(None, None)
 
