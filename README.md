@@ -48,7 +48,7 @@ services:
 ## Configuring Container Labels
 
  - Each container can define one or more jobs via labels.
- - Each job must have a globally unique name (shared across all containers).
+ - Each job must have a unique name (for this one container).
 
 ```yaml
 services:
