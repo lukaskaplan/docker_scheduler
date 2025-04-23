@@ -149,15 +149,18 @@ def watch_events():
             cont = docker_client.containers.get(cid)
         except docker.errors.NotFound:
             cont = None
+        # Set container name if exists, otherwise use the short container ID (cid)
+        cont_name = cont.name if cont else cid
 
         # Actions that should (re)sync jobs: new start, unpause, rename, or config update
-        if action in ("start", "update", "unpause", "rename") and cont:
-            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Sync jobs for {cid} due to '{action}'")
+        #if action in ("start", "update", "unpause", "rename") and cont:
+        if action in ("start", "update", "unpause") and cont:
+            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Sync jobs for {cont_name} ({cid}) due to '{action}'")
             sync_container(cont)
 
         # Actions that should remove all jobs: stop, die, destroy, pause
         elif action in ("stop", "die", "destroy", "pause"):
-            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Removing jobs for {cid} due to '{action}'")
+            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Removing jobs for {cont_name} ({cid}) due to '{action}'")
             prefix = f"{cid}_"
             for job in scheduler.get_jobs():
                 if job.id.startswith(prefix):
