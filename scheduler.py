@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import docker
 import json
+import logging # for logs
 import signal # for signal handlers SIGINT and SIGTERM
 import sys # for sys.exit(0)
 import threading # for scheduler and watcher threads
@@ -11,6 +12,14 @@ from croniter import croniter, CroniterBadCronError # for checking cron syntax
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+# Configure logging with timestamp
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
 # Create and non-blocking scheduler
 scheduler = BackgroundScheduler()
 
@@ -19,7 +28,7 @@ docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 
 # Graceful shutdown handler
 def handle_exit(signum, frame):
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Received signal {signum}, shutting down...")
+    logger.info(f"Received signal {signum}, shutting down...")
     scheduler.shutdown(wait=False)
     sys.exit(0)
 
@@ -75,11 +84,12 @@ def validate_jobs(container, raw_jobs):
         schedule = props.get("schedule")
         command = props.get("command")
         if not schedule or not command:
+            logger.warning(f"Incomplete job for {container.name}:{job_name} - missing schedule or command")
             continue  # skip incomplete jobs
         try:
             croniter(schedule)
         except (CroniterBadCronError, ValueError):
-            #print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Invalid cron for {container.name}:{job_name} -> {schedule}")
+            logger.warning(f"Invalid schedule (not cron format) for {container.name}:{job_name} -> {schedule}")
             continue # skip invalid cron expressions
         cont_short_id = container.id[:12]
         job_id = f"{cont_short_id}_{job_name}"
@@ -102,7 +112,7 @@ def execute_job(job):
     cont_name = job['container_name']
     result = docker_client.containers.get(cid).exec_run(cmd, tty=True)
     output = result.output.decode('utf-8', errors='replace')
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Output for {cont_name} ({job_id}):\n{output}")
+    logger.info(f"Output for {cont_name} ({job_id}):\n{output}")
 
 
 def sync_container(container):
@@ -113,7 +123,7 @@ def sync_container(container):
     for job in scheduler.get_jobs():
         if job.id.startswith(prefix):
             scheduler.remove_job(job.id)
-            print(f"Removed job {job.id}")
+            logger.info(f"Removed job {job.id}")
     # If disabled, do nothing
     if not is_scheduler_enabled(container):
         return
@@ -121,7 +131,7 @@ def sync_container(container):
     raw = extract_raw_jobs(container.labels)
     jobs = validate_jobs(container, raw)
     # Inform about resync
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Resyncing jobs for container {container.name} ({cont_id})")
+    logger.info(f"Resyncing jobs for container {container.name} ({cont_id})")
     # Schedule new jobs
     for job in jobs:
         trigger = CronTrigger.from_crontab(job["schedule"])
@@ -132,12 +142,12 @@ def sync_container(container):
             id=job["id"],
             name=f"{job['container_name']}::{job['id']}"
         )
-        print(f"Scheduled {job['id']}: {job['schedule']} {job['command']}")
+        logger.info(f"Scheduled {job['id']}: {job['schedule']} {job['command']}")
 
 
 def initial_sync():
     """Scan all running containers at startup and sync their jobs."""
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Performing initial sync...")
+    logger.info(f"Performing initial sync...")
     for container in docker_client.containers.list():
         sync_container(container)
 
@@ -147,7 +157,7 @@ def watch_events():
     for event in docker_client.events(decode=True, filters={"type": "container"}):
         action = event.get("Action")
         cid = event.get("id")[:12]
-        #print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Event {action} for container {cid}")
+        #logger.info(f"Event {action} for container {cid}")
         # Attempt to fetch container; some events (destroy) may not find it
         try:
             cont = docker_client.containers.get(cid)
@@ -157,26 +167,25 @@ def watch_events():
         cont_name = cont.name if cont else cid
 
         # Actions that should (re)sync jobs: new start, unpause, rename, or config update
-        #if action in ("start", "update", "unpause", "rename") and cont:
         if action in ("start", "update", "unpause") and cont:
-            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Sync jobs for {cont_name} ({cid}) due to '{action}'")
+            logger.info(f"Sync jobs for {cont_name} ({cid}) due to '{action}'")
             sync_container(cont)
 
         # Actions that should remove all jobs: stop, die, destroy, pause
         elif action in ("stop", "die", "destroy", "pause"):
-            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Removing jobs for {cont_name} ({cid}) due to '{action}'")
+            logger.info(f"Removing jobs for {cont_name} ({cid}) due to '{action}'")
             prefix = f"{cid}_"
             for job in scheduler.get_jobs():
                 if job.id.startswith(prefix):
                     scheduler.remove_job(job.id)
-                    print(f"Removed job {job.id}")
+                    logger.info(f"Removed job {job.id}")
 
 
 if __name__ == '__main__':
     # Start APScheduler in its own background thread
     scheduler_thread = threading.Thread(target=scheduler.start, daemon=True)
     scheduler_thread.start()
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] APScheduler background thread started")
+    logger.info(f"APScheduler background thread started")
 
     # Perform initial sync of existing containers    
     initial_sync()
@@ -184,9 +193,9 @@ if __name__ == '__main__':
     # Start Docker events watcher thread
     watcher_thread = threading.Thread(target=watch_events, daemon=True)
     watcher_thread.start()
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Event watcher thread started")
+    logger.info(f"Event watcher thread started")
 
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Scheduler service is running...")
+    logger.info(f"Scheduler service is running...")
     try:
         while True:
             time.sleep(1)
