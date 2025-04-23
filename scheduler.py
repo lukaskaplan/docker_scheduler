@@ -25,6 +25,9 @@ logging.getLogger('apscheduler.scheduler').setLevel(logging.WARNING)
 logging.getLogger('apscheduler.jobstores.default').setLevel(logging.WARNING)
 logging.getLogger('apscheduler.triggers.cron').setLevel(logging.WARNING)
 
+current_tz = os.environ.get('TZ', 'UTC')
+time.tzset()
+logger.info(f"Configured timezone for job scheduling: {current_tz}")
 
 try:
     if not os.path.exists('/var/run/docker.sock'):
@@ -36,6 +39,7 @@ try:
 except Exception as e:
     logger.error(f"Cannot connect to Docker daemon: {e}")
     sys.exit(1)
+
 
 # Create and non-blocking scheduler
 scheduler = BackgroundScheduler()
