@@ -20,6 +20,21 @@ source .venv/bin/activate
 
 # Install required Python packages
 pip install -r requirements.txt
+
+chmod +x ./scheduler.py
+./scheduler.py
+```
+
+## Docker 
+
+```bash
+# Clone the repository
+git clone ...
+cd docker_scheduler
+
+docker build . -t scheduler
+
+docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -e TZ=Europe/Prague scheduler
 ```
 
 ## Description
