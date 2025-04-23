@@ -2,46 +2,37 @@
 import docker
 import json
 from datetime import datetime
+
 # for checking cron syntax:
 from croniter import croniter, CroniterBadCronError
 
-# Connect to Docker socket
-client = docker.DockerClient(base_url='unix://var/run/docker.sock')
+# import python scheduler
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
-#
-#for event in client.events(decode=True, filters={'Type': 'container'}):
-#  print(event, "\n")
-#
-#event.close()
+# Create and non-blocking scheduler
+scheduler = BackgroundScheduler()
+
+# Connect to Docker socket
+docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 
 def is_scheduler_enabled(container):
-    """Check if the scheduler is enabled for the container."""
+    """
+    Check if the scheduler is enabled for the container.
+    Returns: 
+        - False whenever the label is "false" (or anything other than "true"), including if the label is missing.
+        - True when label is true.
+    """
     labels = container.labels or {}
     return labels.get("scheduler.enable", "").lower() == "true"
 
-def get_scheduler_labels(labels):
-    return {k: v for k, v in labels.items() if k.startswith("scheduler.")}
-
-def get_scheduler_jobs(container):
-    """
-    Extracts and validates jobs defined via scheduler.<job>.schedule and scheduler.<job>.command labels.
-    Returns a list of job dicts with the following keys:
-      - id: unique job id (container_id + job_name)
-      - container_name: name of the container
-      - container_id: short ID of the container
-      - schedule: cron expression
-      - command: command to execute
-    Only jobs with both schedule and command valid cron expressions are returned.
-    """
-    labels = container.labels or {}
+def extract_raw_jobs(labels):
+    """Collect raw schedule/command pairs from scheduler.<job> labels."""
     raw_jobs = {}
-
-    # Collect only schedule and command entries
-    for key, value in labels.items():
+    for key, value in (labels or {}).items():
         if not key.startswith("scheduler."):
             continue
-        parts = key.split('.') # -> ["scheduler", "backup", "schedule"]
-
+        parts = key.split('.')
         if len(parts) != 3:
             continue  # skip keys like scheduler.enable
         _, job_name, prop = parts # unpacking values
@@ -51,15 +42,21 @@ def get_scheduler_jobs(container):
             # job_name = "backup"
             # prop = "schedule"
         if prop not in ("schedule", "command"):
-            continue # ignore other scheduler.* labels
-
+            continue
         # Ensure a dict exists for this job_name
         if job_name not in raw_jobs:
             raw_jobs[job_name] = {}
         raw_jobs[job_name][prop] = value
+    return raw_jobs
 
+def validate_jobs(container, raw_jobs):
+    """
+    Validate and build final job list:
+      - must have both schedule and command
+      - schedule must be valid cron expression
+      - returns list of job dicts with id, container_name, container_id, schedule, command
+    """
     jobs = []
-    # Validate and build job list
     for job_name, props in raw_jobs.items():
         schedule = props.get("schedule")
         command = props.get("command")
@@ -68,31 +65,65 @@ def get_scheduler_jobs(container):
         try:
             croniter(schedule)
         except (CroniterBadCronError, ValueError):
+            #print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Invalid cron for {container.name}:{job_name} -> {schedule}")
             continue # skip invalid cron expressions
-        container_short_id = container.id[:12]
-        job_id = f"{container_short_id}_{job_name}"
+        cont_short_id = container.id[:12]
+        job_id = f"{cont_short_id}_{job_name}"
         jobs.append({
             "id": job_id,
             "container_name": container.name,
-            "container_id": container_short_id,
+            "container_id": cont_short_id,
             "schedule": schedule,
             "command": command
         })
-
     return jobs
 
-def list_scheduled_jobs():
-    """Find all running containers with scheduler enabled and list their jobs."""
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Scanning running containers...")
-    for container in client.containers.list():
-        if not is_scheduler_enabled(container):
-            continue
-        jobs = get_scheduler_jobs(container)
-        if jobs:
-            print(f"Container {container.name} ({container.id[:12]}) has {len(jobs)} scheduled job(s):")
-            for job in jobs:
-                print(f"  - {job['id']}: container_name={job['container_name']}, container_id={job['container_id']}, schedule='{job['schedule']}', command='{job['command']}'")
+def sync_container(container):
+    """Sync APScheduler jobs for a single container based on its labels."""
+    cont_id = container.id[:12]
+    prefix = f"{cont_id}_"
+    # Remove existing jobs for this container
+    for job in scheduler.get_jobs():
+        if job.id.startswith(prefix):
+            scheduler.remove_job(job.id)
+            #print(f"Removed job {job.id}")
+    # If disabled, do nothing
+    if not is_scheduler_enabled(container):
+        return
+    # Extract and validate raw job definitions
+    raw = extract_raw_jobs(container.labels)
+    jobs = validate_jobs(container, raw)
+    # Inform about resync
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Resyncing jobs for container {container.name} ({cont_id})")
+    # Schedule new jobs
+    for job in jobs:
+        trigger = CronTrigger.from_crontab(job["schedule"])
+        def job_func(cmd=job["command"], cid=job["container_id"]):
+            docker_client.containers.get(cid).exec_run(cmd, tty=True)
+        scheduler.add_job(
+            job_func,
+            trigger=trigger,
+            id=job["id"],
+            name=f"{job['container_name']}::{job['id']}"
+        )
+        print(f"Scheduled {job['id']}: {job['schedule']} {job['command']}")
 
+def initial_sync():
+    """Scan all running containers at startup and sync their jobs."""
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Performing initial sync...")
+    for container in docker_client.containers.list():
+        sync_container(container)
 
 if __name__ == '__main__':
-    list_scheduled_jobs()
+    # Start the scheduler
+    scheduler.start()
+    initial_sync()
+    # debug:
+#    for job in scheduler.get_jobs():
+#        print(job.name, job.trigger)
+    # Dump all scheduled jobs for verification
+    for job in scheduler.get_jobs():
+        # cmd je první default argument lambda funkcí
+        cmd = job.func.__defaults__[0]
+        print(f"{job.id}: schedule={job.trigger}, command={cmd}")
+
