@@ -94,11 +94,15 @@ def validate_jobs(container, raw_jobs):
 
 
 # Helper to execute commands and capture output
-def execute_job(cmd, cid):
+def execute_job(job):
     """Execute the command in the given container and print the output."""
+    cmd = job['command']
+    cid = job['container_id']
+    job_id = job['id']
+    cont_name = job['container_name']
     result = docker_client.containers.get(cid).exec_run(cmd, tty=True)
     output = result.output.decode('utf-8', errors='replace')
-    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Output for {cid}: {output}")
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Output for {cont_name} ({job_id}):\n{output}")
 
 
 def sync_container(container):
@@ -124,7 +128,7 @@ def sync_container(container):
         scheduler.add_job(
             execute_job,
             trigger=trigger,
-            args=[job["command"], job["container_id"]],
+            args=[job],
             id=job["id"],
             name=f"{job['container_name']}::{job['id']}"
         )
