@@ -58,6 +58,8 @@ services:
     image: scheduler
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      TZ: Europe/Prague
 ```
 
 ## Configuring Container Labels
