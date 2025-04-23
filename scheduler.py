@@ -2,6 +2,7 @@
 import docker
 import json
 import logging # for logs
+import os # for docker socket check
 import signal # for signal handlers SIGINT and SIGTERM
 import sys # for sys.exit(0)
 import threading # for scheduler and watcher threads
@@ -25,10 +26,19 @@ logging.getLogger('apscheduler.jobstores.default').setLevel(logging.WARNING)
 logging.getLogger('apscheduler.triggers.cron').setLevel(logging.WARNING)
 
 
+try:
+    if not os.path.exists('/var/run/docker.sock'):
+        logger.error("Docker socket not found at /var/run/docker.sock. Exiting.")
+        sys.exit(1)
+    # Connect to Docker socket
+    docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
+    docker_client.ping()
+except Exception as e:
+    logger.error(f"Cannot connect to Docker daemon: {e}")
+    sys.exit(1)
+
 # Create and non-blocking scheduler
 scheduler = BackgroundScheduler()
-# Connect to Docker socket
-docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 
 # Graceful shutdown handler
 def handle_exit(signum, frame):
