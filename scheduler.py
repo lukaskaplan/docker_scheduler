@@ -16,6 +16,7 @@ scheduler = BackgroundScheduler()
 # Connect to Docker socket
 docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 
+
 def is_scheduler_enabled(container):
     """
     Check if the scheduler is enabled for the container.
@@ -25,6 +26,7 @@ def is_scheduler_enabled(container):
     """
     labels = container.labels or {}
     return labels.get("scheduler.enable", "").lower() == "true"
+
 
 def extract_raw_jobs(labels):
     """Collect raw schedule/command pairs from scheduler.<job> labels."""
@@ -48,6 +50,7 @@ def extract_raw_jobs(labels):
             raw_jobs[job_name] = {}
         raw_jobs[job_name][prop] = value
     return raw_jobs
+
 
 def validate_jobs(container, raw_jobs):
     """
@@ -78,6 +81,7 @@ def validate_jobs(container, raw_jobs):
         })
     return jobs
 
+
 def sync_container(container):
     """Sync APScheduler jobs for a single container based on its labels."""
     cont_id = container.id[:12]
@@ -86,7 +90,7 @@ def sync_container(container):
     for job in scheduler.get_jobs():
         if job.id.startswith(prefix):
             scheduler.remove_job(job.id)
-            #print(f"Removed job {job.id}")
+            print(f"Removed job {job.id}")
     # If disabled, do nothing
     if not is_scheduler_enabled(container):
         return
@@ -108,11 +112,40 @@ def sync_container(container):
         )
         print(f"Scheduled {job['id']}: {job['schedule']} {job['command']}")
 
+
 def initial_sync():
     """Scan all running containers at startup and sync their jobs."""
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Performing initial sync...")
     for container in docker_client.containers.list():
         sync_container(container)
+
+
+def watch_events():
+    """Listen to Docker events and resync or remove jobs based on container lifecycle."""
+    for event in docker_client.events(decode=True, filters={"type": "container"}):
+        action = event.get("Action")
+        cid = event.get("id")[:12]
+        #print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Event {action} for container {cid}")
+        # Attempt to fetch container; some events (destroy) may not find it
+        try:
+            cont = docker_client.containers.get(cid)
+        except docker.errors.NotFound:
+            cont = None
+
+        # Actions that should (re)sync jobs: new start, unpause, rename, or config update
+        if action in ("start", "update", "unpause", "rename") and cont:
+            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Sync jobs for {cid} due to '{action}'")
+            sync_container(cont)
+
+        # Actions that should remove all jobs: stop, die, destroy, pause
+        elif action in ("stop", "die", "destroy", "pause"):
+            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Removing jobs for {cid} due to '{action}'")
+            prefix = f"{cid}_"
+            for job in scheduler.get_jobs():
+                if job.id.startswith(prefix):
+                    scheduler.remove_job(job.id)
+                    print(f"Removed job {job.id}")
+
 
 if __name__ == '__main__':
     # Start the scheduler
