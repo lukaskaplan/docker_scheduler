@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import docker
 import json
+import threading # for scheduler and watcher threads
+import time # for endles while loop with time.sleep(1)
 from datetime import datetime
-
-# for checking cron syntax:
-from croniter import croniter, CroniterBadCronError
-
-# import python scheduler
+from croniter import croniter, CroniterBadCronError # for checking cron syntax
+# import python scheduler:
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -49,7 +48,7 @@ def extract_raw_jobs(labels):
         if job_name not in raw_jobs:
             raw_jobs[job_name] = {}
         raw_jobs[job_name][prop] = value
-    return raw_jobs
+    return  raw_jobs
 
 
 def validate_jobs(container, raw_jobs):
@@ -82,6 +81,14 @@ def validate_jobs(container, raw_jobs):
     return jobs
 
 
+# Helper to execute commands and capture output
+def execute_job(cmd, cid):
+    """Execute the command in the given container and print the output."""
+    result = docker_client.containers.get(cid).exec_run(cmd, tty=True)
+    output = result.output.decode('utf-8', errors='replace')
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Output for {cid}: {output}")
+
+
 def sync_container(container):
     """Sync APScheduler jobs for a single container based on its labels."""
     cont_id = container.id[:12]
@@ -102,11 +109,10 @@ def sync_container(container):
     # Schedule new jobs
     for job in jobs:
         trigger = CronTrigger.from_crontab(job["schedule"])
-        def job_func(cmd=job["command"], cid=job["container_id"]):
-            docker_client.containers.get(cid).exec_run(cmd, tty=True)
         scheduler.add_job(
-            job_func,
+            execute_job,
             trigger=trigger,
+            args=[job["command"], job["container_id"]],
             id=job["id"],
             name=f"{job['container_name']}::{job['id']}"
         )
@@ -148,15 +154,20 @@ def watch_events():
 
 
 if __name__ == '__main__':
-    # Start the scheduler
-    scheduler.start()
+    # Start APScheduler in its own background thread
+    scheduler_thread = threading.Thread(target=scheduler.start, daemon=True)
+    scheduler_thread.start()
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] APScheduler background thread started")
+
+    # Perform initial sync of existing containers    
     initial_sync()
-    # debug:
-#    for job in scheduler.get_jobs():
-#        print(job.name, job.trigger)
-    # Dump all scheduled jobs for verification
-    for job in scheduler.get_jobs():
-        # cmd je první default argument lambda funkcí
-        cmd = job.func.__defaults__[0]
-        print(f"{job.id}: schedule={job.trigger}, command={cmd}")
+
+    # Start Docker events watcher thread
+    watcher_thread = threading.Thread(target=watch_events, daemon=True)
+    watcher_thread.start()
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Event watcher thread started")
+
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Scheduler service is running...")
+    while True:
+        time.sleep(1)
 
