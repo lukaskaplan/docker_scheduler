@@ -7,7 +7,6 @@ import sys # for sys.exit(0)
 import threading # for scheduler and watcher threads
 import time # for endles while loop with time.sleep(1)
 from datetime import datetime
-from croniter import croniter, CroniterBadCronError # for checking cron syntax
 # import python scheduler:
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -87,8 +86,8 @@ def validate_jobs(container, raw_jobs):
             logger.warning(f"Incomplete job for {container.name}:{job_name} - missing schedule or command")
             continue  # skip incomplete jobs
         try:
-            croniter(schedule)
-        except (CroniterBadCronError, ValueError):
+            CronTrigger.from_crontab(schedule)
+        except ValueError:
             logger.warning(f"Invalid schedule (not cron format) for {container.name}:{job_name} -> {schedule}")
             continue # skip invalid cron expressions
         cont_short_id = container.id[:12]
