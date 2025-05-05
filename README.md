@@ -1,9 +1,15 @@
 # docker_scheduler
 
-This tool allows you to define cron-like tasks for your containers using container labels.
+This tool allows you to define cron-like tasks for your containers using
+container labels.
 
-**⚠️ Warning:** This project is still under development and not ready for production use.  
-This README describes the intended functionality once the project is complete.
+It is inspired by [Ofelia](https://github.com/mcuadros/ofelia). It is great
+project, but it has one big disadvantage for me - it needs to be restarted when
+applying changes in labels (at this time 5/2025). So I decided to write my own.
+
+**⚠️ Warning:** This project is still under development and not ready for
+production use. This README describes the intended functionality once the
+project is complete.
 
 ---
 
