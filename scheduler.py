@@ -68,7 +68,7 @@ except Exception as e:
 scheduler = BackgroundScheduler()
 
 # Graceful shutdown handler
-def handle_exit(signum, frame):
+def handle_exit(signum, frame):     # pylint: disable=unused-argument
     logger.info("Received signal %s, shutting down...", signum)
     scheduler.shutdown(wait=False)
     sys.exit(0)
@@ -199,7 +199,7 @@ def sync_container(container):
     raw = extract_raw_jobs(container.labels)
     jobs = validate_jobs(container, raw)
     # Inform about resync
-    logger.info("Resyncing jobs for container %s (%s)", container_name, cont_id)
+    logger.info("Resyncing jobs for container %s (%s)", container.name, cont_id)
     # Schedule new jobs
     for job in jobs:
         trigger = CronTrigger.from_crontab(job["schedule"])
