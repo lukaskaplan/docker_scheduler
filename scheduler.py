@@ -1,4 +1,29 @@
 #!/usr/bin/env python3
+
+"""Standalone Docker-based job scheduler using cron expressions and container labels.
+
+This module is designed to run as its own Docker container. It scans running Docker
+containers for job definitions specified through container labels, parses cron schedules,
+and executes the associated commands using APScheduler.
+
+Features:
+    - Runs as an independent scheduler container.
+    - Dynamically discovers job definitions from other containers via labels.
+    - Validates cron expressions and logs any issues.
+    - Executes commands inside the target containers at scheduled times.
+    - Provides logging and basic error handling.
+
+Usage:
+    Build and run this module as a Docker container with access to the Docker socket
+    (e.g., mount /var/run/docker.sock). It will automatically detect and manage jobs
+    defined on labeled containers.
+
+Example label format:
+    com.example.job.<jobname>.schedule = "* * * * *"
+    com.example.job.<jobname>.command = "echo hello"
+"""
+
+
 import docker
 import json
 import logging # for logs
@@ -104,12 +129,18 @@ def validate_jobs(container, raw_jobs):
         schedule = props.get("schedule")
         command = props.get("command")
         if not schedule or not command:
-            logger.warning(f"Incomplete job for {container.name}:{job_name} - missing schedule or command")
+            logger.warning(
+                f"Incomplete job for {container.name}:{job_name} - "
+                f"missing schedule or command"
+            )
             continue  # skip incomplete jobs
         try:
             CronTrigger.from_crontab(schedule)
         except ValueError:
-            logger.warning(f"Invalid schedule (not cron format) for {container.name}:{job_name} -> {schedule}")
+            logger.warning(
+                f"Invalid schedule (not cron format) for "
+                f"{container.name}:{job_name} -> {schedule}"
+            )
             continue # skip invalid cron expressions
         cont_short_id = container.id[:12]
         job_id = f"{cont_short_id}_{job_name}"
@@ -137,7 +168,10 @@ def execute_job(job):
         exit_code = result.exit_code
         if exit_code != 0:
             # Log error without traceback
-            logger.error(f"Job {job_id} in {cont_name} ({cid}) exited with code {exit_code}: {output}")
+            logger.error(
+                f"Job {job_id} in {cont_name} ({cid}) "
+                f"exited with code {exit_code}: {output}"
+            )
             return  # Do not raise to avoid traceback logging
         #logger.info(f"Output for {cont_name} ({job_id}):\n{output}")
     except Exception as e:
@@ -218,7 +252,7 @@ if __name__ == '__main__':
     scheduler_thread.start()
     logger.info(f"APScheduler background thread started")
 
-    # Perform initial sync of existing containers    
+    # Perform initial sync of existing containers
     initial_sync()
 
     # Start Docker events watcher thread
@@ -232,4 +266,3 @@ if __name__ == '__main__':
             time.sleep(1)
     except KeyboardInterrupt:
         handle_exit(None, None)
-
