@@ -24,15 +24,13 @@ Example label format:
 """
 
 
-import docker
-import json
 import logging # for logs
 import os # for docker socket check
 import signal # for signal handlers SIGINT and SIGTERM
 import sys # for sys.exit(0)
 import threading # for scheduler and watcher threads
 import time # for endles while loop with time.sleep(1)
-from datetime import datetime
+import docker
 # import python scheduler:
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
