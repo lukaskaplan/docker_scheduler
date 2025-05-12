@@ -59,7 +59,7 @@ try:
     # Connect to Docker socket
     docker_client = docker.DockerClient(base_url='unix://var/run/docker.sock')
     docker_client.ping()
-except Exception as e:
+except Exception as e:  # pylint: disable=broad-exception-caught
     logger.error("Cannot connect to Docker daemon: %s", e)
     sys.exit(1)
 
@@ -67,8 +67,14 @@ except Exception as e:
 # Create and non-blocking scheduler
 scheduler = BackgroundScheduler()
 
-# Graceful shutdown handler
-def handle_exit(signum, frame):     # pylint: disable=unused-argument
+def handle_exit(signum, frame):  # pylint: disable=unused-argument
+    """
+    Handle signal SIGINT and SIGTERM by shutting down the scheduler and exiting.
+    
+    This function is registered as a signal handler for SIGINT and SIGTERM.
+    When a signal is received, it logs the signal, shuts down the scheduler,
+    and calls sys.exit(0) to exit the program.
+    """
     logger.info("Received signal %s, shutting down...", signum)
     scheduler.shutdown(wait=False)
     sys.exit(0)
@@ -91,7 +97,12 @@ def is_scheduler_enabled(container):
 
 
 def extract_raw_jobs(labels):
-    """Collect raw schedule/command pairs from scheduler.<job> labels."""
+    """
+    Collect raw schedule/command pairs from scheduler.<job> labels.
+    Returns:
+        - a dict with job names as keys and dicts with schedule and command
+        as values.
+    """
     raw_jobs = {}
     for key, value in (labels or {}).items():
         if not key.startswith("scheduler."):
@@ -121,6 +132,8 @@ def validate_jobs(container, raw_jobs):
       - schedule must be valid cron expression
       - returns list of job dicts with id, container_name, container_id,
         schedule, command
+    Returns:
+        - list of job dicts
     """
     jobs = []
     for job_name, props in raw_jobs.items():
@@ -155,9 +168,10 @@ def validate_jobs(container, raw_jobs):
     return jobs
 
 
-# Helper to execute commands and capture output
 def execute_job(job):
-    """Execute the command in the given container and print the output."""
+    """
+    Execute the command in the given container and print the output.
+    """
     cmd = job['command']
     cid = job['container_id']
     job_id = job['id']
@@ -175,7 +189,7 @@ def execute_job(job):
             )
             return  # Do not raise to avoid traceback logging
         #logger.info(f"Output for {cont_name} ({job_id}):\n{output}")
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         # Log the exception without full traceback
         logger.exception(
             "Error running job %s in %s (%s): %s", job_id, cont_name, cid, e
@@ -184,7 +198,9 @@ def execute_job(job):
 
 
 def sync_container(container):
-    """Sync APScheduler jobs for a single container based on its labels."""
+    """
+    Sync APScheduler jobs for a single container based on its labels.
+    """
     cont_id = container.id[:12]
     prefix = f"{cont_id}_"
     # Remove existing jobs for this container
@@ -216,14 +232,18 @@ def sync_container(container):
 
 
 def initial_sync():
-    """Scan all running containers at startup and sync their jobs."""
+    """
+    Scan all running containers at startup and sync their jobs.
+    """
     logger.info("Performing initial sync...")
     for container in docker_client.containers.list():
         sync_container(container)
 
 
 def watch_events():
-    """Listen to Docker events and resync or remove jobs based on container lifecycle."""
+    """
+    Listen to Docker events and resync or remove jobs based on container lifecycle.
+    """
     for event in docker_client.events(decode=True, filters={"type": "container"}):
         action = event.get("Action")
         cid = event.get("id")[:12]
