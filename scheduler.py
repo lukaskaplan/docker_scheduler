@@ -178,7 +178,9 @@ def execute_job(job):
     cont_name = job['container_name']
     logger.info("Runnig job %s in %s", job_id, cont_name)
     try:
-        result = docker_client.containers.get(cid).exec_run(cmd, tty=True)
+        # run via shell to support redirection/pipes
+        shell_cmd = ["/bin/sh", "-c", cmd]
+        result = docker_client.containers.get(cid).exec_run(shell_cmd, tty=True)
         output = result.output.decode('utf-8', errors='replace')
         exit_code = result.exit_code
         if exit_code != 0:
