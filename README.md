@@ -2,6 +2,9 @@
 
 ![Docker Scheduler banner](https://raw.githubusercontent.com/lukaskaplan/docker_scheduler/refs/heads/main/docker_scheduler_banner.png)
 
+[![Lint + Docker release](https://github.com/lukaskaplan/docker_scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/lukaskaplan/docker_scheduler/actions/workflows/ci.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/lukaskaplan/docker-scheduler)](https://hub.docker.com/r/lukaskaplan/docker-scheduler)
+
 ## Description
 
 **docker_scheduler** is a simple task scheduler for Docker containers. It executes scheduled (cron) tasks directly inside containers based on Docker labels — no external orchestrator or scheduler required.
