@@ -1,5 +1,7 @@
 # docker_scheduler
 
+![Docker Scheduler banner](./docker_scheduler_banner.png)
+
 This tool allows you to define cron-like tasks for your containers using
 container labels.
 
