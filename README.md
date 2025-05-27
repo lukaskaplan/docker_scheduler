@@ -1,6 +1,6 @@
 # docker_scheduler
 
-![Docker Scheduler banner](./docker_scheduler_banner.png)
+![Docker Scheduler banner](https://raw.githubusercontent.com/lukaskaplan/docker_scheduler/refs/heads/main/docker_scheduler_banner.png)
 
 ## Description
 
