@@ -7,10 +7,6 @@ It is inspired by [Ofelia](https://github.com/mcuadros/ofelia). It is great
 project, but it has one big disadvantage for me - it needs to be restarted when
 applying changes in labels (at this time 5/2025). So I decided to write my own.
 
-**⚠️ Warning:** This project is still under development and not ready for
-production use. This README describes the intended functionality once the
-project is complete.
-
 ---
 
 ## Installation
